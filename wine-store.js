@@ -61,6 +61,26 @@
     };
   }
 
+  function sortWinesNewestFirst(wines) {
+    const sortableDate = (value) => {
+      const date = String(value || '');
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+      if (!match) return '';
+      const parsed = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+      return parsed.getUTCFullYear() === Number(match[1])
+        && parsed.getUTCMonth() === Number(match[2]) - 1
+        && parsed.getUTCDate() === Number(match[3]) ? date : '';
+    };
+    return (Array.isArray(wines) ? wines : [])
+      .map((wine, index) => ({ wine, index, date: sortableDate(wine?.date) }))
+      .sort((left, right) => {
+        if (!left.date && right.date) return 1;
+        if (left.date && !right.date) return -1;
+        return right.date.localeCompare(left.date) || left.index - right.index;
+      })
+      .map(({ wine }) => wine);
+  }
+
   function addWine(storage, input) {
     const wine = normalizeWine(input);
     if (!wine || !storage || typeof storage.setItem !== 'function') return null;
@@ -153,5 +173,5 @@
     return true;
   }
 
-  return { normalizeWine, addWine, deleteWine, getVisibleWines, markWineSynced, markWineDeletionSynced, requeueWineMutation };
+  return { normalizeWine, sortWinesNewestFirst, addWine, deleteWine, getVisibleWines, markWineSynced, markWineDeletionSynced, requeueWineMutation };
 });
