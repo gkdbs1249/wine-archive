@@ -21,6 +21,20 @@
     throw new Error('Could not compress image for storage');
   }
 
+  function hasTransparentPixels(imageData, alphaThreshold = 250, minimumRatio = 0.001) {
+    const width = Number(imageData?.width) || 0;
+    const height = Number(imageData?.height) || 0;
+    const data = imageData?.data;
+    const total = width * height;
+    if (!total || !data || data.length !== total * 4) return false;
+    const minimum = Math.max(1, Math.ceil(total * minimumRatio));
+    let transparent = 0;
+    for (let offset = 3; offset < data.length; offset += 4) {
+      if (data[offset] < alphaThreshold && ++transparent >= minimum) return true;
+    }
+    return false;
+  }
+
   function median(values) {
     const sorted = values.slice().sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)] || 0;
@@ -203,5 +217,5 @@
     return widthRatio >= 0.12 && widthRatio <= 0.9 && heightRatio >= 0.5 && heightRatio <= 0.99 && aspect >= 2 && aspect <= 9;
   }
 
-  return { encodeCanvasForStorage, removeConnectedBackground, foregroundBounds, isPlausibleBottleBounds, repairBottleMask };
+  return { encodeCanvasForStorage, hasTransparentPixels, removeConnectedBackground, foregroundBounds, isPlausibleBottleBounds, repairBottleMask };
 });
