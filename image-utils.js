@@ -99,12 +99,17 @@
     return { x, y, width: right - x, height: bottom - y };
   }
 
-  function repairBottleMask(imageData, alphaThreshold = 8) {
+  function repairBottleMask(imageData, alphaThreshold = 8, sourceImageData = null) {
     const width = Number(imageData?.width) || 0;
     const height = Number(imageData?.height) || 0;
     const source = imageData?.data;
     if (!width || !height || !source || source.length !== width * height * 4) throw new Error('Valid ImageData is required');
     const data = new Uint8ClampedArray(source);
+    const sourcePixels = sourceImageData?.width === width
+      && sourceImageData?.height === height
+      && sourceImageData?.data?.length === width * height * 4
+      ? sourceImageData.data
+      : null;
     const rowEdges = [];
     for (let y = 0; y < height; y += 1) {
       let left = width;
@@ -116,25 +121,44 @@
       }
       rowEdges.push({ left, right });
     }
-    const centers = rowEdges
-      .slice(Math.floor(height * 0.58), Math.ceil(height * 0.92))
-      .filter(({ left, right }) => right >= left && right - left + 1 >= width * 0.15)
+    const topRows = rowEdges
+      .slice(Math.floor(height * 0.03), Math.ceil(height * 0.45))
+      .filter(({ left, right }) => right >= left && right - left + 1 >= Math.max(2, width * 0.04));
+    const topWidths = topRows.map(({ left, right }) => right - left + 1).sort((a, b) => a - b);
+    const narrowWidth = topWidths[Math.floor(topWidths.length * 0.25)] || 0;
+    const neckCenters = topRows
+      .filter(({ left, right }) => right - left + 1 <= narrowWidth * 1.35)
       .map(({ left, right }) => (left + right) / 2);
+    const bodyRows = rowEdges
+      .slice(Math.floor(height * 0.58), Math.ceil(height * 0.92))
+      .filter(({ left, right }) => right >= left && right - left + 1 >= width * 0.15);
+    const bodyCenters = bodyRows.map(({ left, right }) => (left + right) / 2);
+    const centers = neckCenters.length >= 2 ? neckCenters : bodyCenters;
     const center = Math.round(median(centers));
+    const bodyRadii = bodyRows
+      .map(({ left, right }) => Math.max(center - left, right - center))
+      .filter(radius => radius >= 1);
+    const bodyRadius = Math.max(1, Math.round(median(bodyRadii)));
     if (centers.length) {
       for (let y = 0; y < height; y += 1) {
         const { left, right } = rowEdges[y];
         if (left >= center || right <= center) continue;
-        const leftRadius = center - left;
-        const rightRadius = right - center;
-        const nearRadius = Math.min(leftRadius, rightRadius);
-        const farRadius = Math.max(leftRadius, rightRadius);
-        if (nearRadius < 1 || farRadius / nearRadius < 1.15) continue;
-        const radius = Math.max(1, nearRadius);
+        const observedRadius = Math.max(center - left, right - center);
+        const radius = Math.max(1, Math.min(observedRadius, bodyRadius));
         const minX = Math.max(0, center - radius);
         const maxX = Math.min(width - 1, center + radius);
         for (let x = 0; x < minX; x += 1) data[(y * width + x) * 4 + 3] = 0;
         for (let x = maxX + 1; x < width; x += 1) data[(y * width + x) * 4 + 3] = 0;
+        if (sourcePixels) {
+          for (let x = minX; x <= maxX; x += 1) {
+            const offset = (y * width + x) * 4;
+            if (data[offset + 3] > alphaThreshold) continue;
+            data[offset] = sourcePixels[offset];
+            data[offset + 1] = sourcePixels[offset + 1];
+            data[offset + 2] = sourcePixels[offset + 2];
+            data[offset + 3] = 255;
+          }
+        }
       }
     }
 
