@@ -81,6 +81,30 @@
       .map(({ wine }) => wine);
   }
 
+  const COUNTRY_NAMES = {
+    france: '프랑스', spain: '스페인', italy: '이탈리아', portugal: '포르투갈', germany: '독일', austria: '오스트리아',
+    chile: '칠레', argentina: '아르헨티나', australia: '호주', 'new zealand': '뉴질랜드', 'south africa': '남아프리카공화국',
+    usa: '미국', us: '미국', 'united states': '미국', korea: '대한민국', 'south korea': '대한민국',
+  };
+
+  function normalizeCountryName(value) {
+    const country = String(value || '').trim().replace(/\s+/g, ' ');
+    return COUNTRY_NAMES[country.toLowerCase()] || country;
+  }
+
+  function groupWinesByCountry(wines) {
+    const grouped = new Map();
+    sortWinesNewestFirst(wines).forEach((wine) => {
+      const country = normalizeCountryName(wine?.country);
+      if (!country) return;
+      if (!grouped.has(country)) grouped.set(country, []);
+      grouped.get(country).push(wine);
+    });
+    return [...grouped.entries()]
+      .map(([country, countryWines]) => ({ country, count: countryWines.length, wines: countryWines }))
+      .sort((left, right) => left.country.localeCompare(right.country, 'ko'));
+  }
+
   function addWine(storage, input) {
     const wine = normalizeWine(input);
     if (!wine || !storage || typeof storage.setItem !== 'function') return null;
@@ -173,5 +197,5 @@
     return true;
   }
 
-  return { normalizeWine, sortWinesNewestFirst, addWine, deleteWine, getVisibleWines, markWineSynced, markWineDeletionSynced, requeueWineMutation };
+  return { normalizeWine, sortWinesNewestFirst, groupWinesByCountry, addWine, deleteWine, getVisibleWines, markWineSynced, markWineDeletionSynced, requeueWineMutation };
 });
