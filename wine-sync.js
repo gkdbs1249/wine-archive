@@ -359,23 +359,32 @@
 
   async function saveWineWithFallback(sync, wine, saveLocal, confirmSaved, requeueLatest) {
     const version = beginMutation(wine.id);
-    const localResult = typeof saveLocal === 'function' ? saveLocal(wine) : null;
+    let localResult = null;
+    let localError = null;
+    try {
+      localResult = typeof saveLocal === 'function' ? saveLocal(wine) : null;
+    } catch (error) {
+      localError = error;
+    }
     if (sync) {
       try {
         await sync.saveWine(wine);
         const latest = isLatestMutation(wine.id, version);
         if (latest) {
-          if (typeof confirmSaved === 'function') confirmSaved(wine);
-        } else if (typeof requeueLatest === 'function') requeueLatest(wine.id);
-        return { sync, offline: false, stale: !latest, error: null };
+          if (localResult && typeof confirmSaved === 'function') confirmSaved(wine);
+        } else if (localResult && typeof requeueLatest === 'function') requeueLatest(wine.id);
+        return { sync, offline: false, stale: !latest, error: null, localError };
       } catch (error) {
-        if (!localResult) throw error;
+        if (!localResult) {
+          if (localError && !error.cause) error.cause = localError;
+          throw error;
+        }
         const latest = isLatestMutation(wine.id, version);
-        return { sync, offline: true, stale: !latest, error };
+        return { sync, offline: true, stale: !latest, error, localError };
       }
     }
-    if (!localResult) throw new Error('Local wine save failed');
-    return { sync: null, offline: true, stale: false, error: null };
+    if (!localResult) throw localError || new Error('Local wine save failed');
+    return { sync: null, offline: true, stale: false, error: null, localError };
   }
 
   async function deleteWineWithFallback(sync, id, deleteLocal, confirmDeleted, requeueLatest) {
