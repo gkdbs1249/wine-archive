@@ -9,6 +9,7 @@
   const PENDING_UPSERTS_KEY = 'wine-archive:pending-wine-upserts';
   const PENDING_DELETES_KEY = 'wine-archive:pending-wine-deletes';
   const PENDING_RATINGS_KEY = 'wine-archive:pending-ratings';
+  const ARCHIVE_PRESETS_KEY = 'wine-archive:archive-presets';
 
   function markMigrationDirty(storage) {
     storage.setItem(MIGRATION_KEY, 'dirty');
@@ -105,6 +106,83 @@
       .sort((left, right) => left.country.localeCompare(right.country, 'ko'));
   }
 
+  function normalizePersonName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').replace(/(?:이랑|랑|하고|와|과)$/u, '').trim();
+  }
+
+  function personNames(value) {
+    return [...new Set(String(value || '')
+      .replace(/(?:이랑|랑|하고|와|과)\s+/gu, ',')
+      .split(/[,·/&+]|\band\b/iu)
+      .map(normalizePersonName)
+      .filter(Boolean))];
+  }
+
+  function normalizePlaceName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').replace(/에서$/u, '').trim();
+  }
+
+  function groupWines(wines, valuesForWine, key) {
+    const grouped = new Map();
+    sortWinesNewestFirst(wines).forEach((wine) => {
+      [...new Set(valuesForWine(wine))].forEach((value) => {
+        if (!value) return;
+        if (!grouped.has(value)) grouped.set(value, []);
+        grouped.get(value).push(wine);
+      });
+    });
+    return [...grouped.entries()]
+      .map(([value, groupedWines]) => ({ [key]: value, count: groupedWines.length, wines: groupedWines }))
+      .sort((left, right) => left[key].localeCompare(right[key], 'ko'));
+  }
+
+  function groupWinesByPerson(wines) {
+    return groupWines(wines, (wine) => personNames(wine?.people), 'person');
+  }
+
+  function groupWinesByPlace(wines) {
+    return groupWines(wines, (wine) => {
+      const place = normalizePlaceName(wine?.place);
+      return place ? [place] : [];
+    }, 'place');
+  }
+
+  function sanitizePresetValues(values, type) {
+    if (!Array.isArray(values)) return [];
+    const normalize = type === 'people' ? normalizePersonName : normalizePlaceName;
+    return [...new Set(values
+      .filter((value) => typeof value === 'string')
+      .map(normalize)
+      .filter((value) => value && value.length <= 160))];
+  }
+
+  function addArchivePreset(storage, type, value) {
+    if (!['people', 'places'].includes(type) || !storage || typeof storage.setItem !== 'function') return '';
+    const normalized = type === 'people' ? normalizePersonName(value) : normalizePlaceName(value);
+    if (!normalized || normalized.length > 160) return '';
+    const saved = readJson(storage, ARCHIVE_PRESETS_KEY, null);
+    const source = saved && !Array.isArray(saved) && typeof saved === 'object' ? saved : {};
+    const presets = {
+      people: sanitizePresetValues(source.people, 'people'),
+      places: sanitizePresetValues(source.places, 'places'),
+    };
+    const values = presets[type];
+    presets[type] = [...new Set([...values.map(String), normalized])];
+    storage.setItem(ARCHIVE_PRESETS_KEY, JSON.stringify(presets));
+    return normalized;
+  }
+
+  function getArchivePresets(wines, storage) {
+    const saved = readJson(storage, ARCHIVE_PRESETS_KEY, null);
+    const stored = saved && !Array.isArray(saved) && typeof saved === 'object' ? saved : {};
+    const people = groupWinesByPerson(wines).sort((a, b) => b.count - a.count || a.person.localeCompare(b.person, 'ko')).map((group) => group.person);
+    const places = groupWinesByPlace(wines).sort((a, b) => b.count - a.count || a.place.localeCompare(b.place, 'ko')).map((group) => group.place);
+    return {
+      people: [...new Set([...people, ...sanitizePresetValues(stored.people, 'people')])],
+      places: [...new Set([...places, ...sanitizePresetValues(stored.places, 'places')])],
+    };
+  }
+
   function addWine(storage, input) {
     const wine = normalizeWine(input);
     if (!wine || !storage || typeof storage.setItem !== 'function') return null;
@@ -197,5 +275,19 @@
     return true;
   }
 
-  return { normalizeWine, sortWinesNewestFirst, groupWinesByCountry, addWine, deleteWine, getVisibleWines, markWineSynced, markWineDeletionSynced, requeueWineMutation };
+  return {
+    normalizeWine,
+    sortWinesNewestFirst,
+    groupWinesByCountry,
+    groupWinesByPerson,
+    groupWinesByPlace,
+    addArchivePreset,
+    getArchivePresets,
+    addWine,
+    deleteWine,
+    getVisibleWines,
+    markWineSynced,
+    markWineDeletionSynced,
+    requeueWineMutation,
+  };
 });
