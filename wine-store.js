@@ -41,9 +41,17 @@
     return `wine-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
+  function normalizeArchiveOwner(input) {
+    if (!input || !Object.prototype.hasOwnProperty.call(input, 'archiveOwner')) return '';
+    if (input.archiveOwner === '') return '';
+    return ['하윤', '제권'].includes(input.archiveOwner) ? input.archiveOwner : null;
+  }
+
   function normalizeWine(input) {
     const name = String(input?.name || '').trim();
     if (!name) return null;
+    const archiveOwner = normalizeArchiveOwner(input);
+    if (archiveOwner === null) return null;
     const rawScore = input.externalScore;
     const score = rawScore === '' || rawScore === null || rawScore === undefined ? NaN : Number(rawScore);
     return {
@@ -58,6 +66,7 @@
       people: String(input.people || '').trim(),
       place: String(input.place || '').trim(),
       kind: normalizeKind(input.kind),
+      archiveOwner,
       food: String(input.food || '').trim(),
       note: String(input.note || '').trim(),
       image: String(input.image || '').trim(),
@@ -65,6 +74,16 @@
       r: String(input.r || '').trim(),
       custom: input.custom !== false,
     };
+  }
+
+  function winesForArchive(wines, owner = '') {
+    if (owner !== '' && !['하윤', '제권'].includes(owner)) return [];
+    return (Array.isArray(wines) ? wines : []).filter((wine) => {
+      if (!wine || typeof wine !== 'object') return false;
+      if (!Object.prototype.hasOwnProperty.call(wine, 'archiveOwner')) return owner === '';
+      if (wine.archiveOwner !== '' && !['하윤', '제권'].includes(wine.archiveOwner)) return false;
+      return wine.archiveOwner === owner;
+    });
   }
 
   function sortWinesNewestFirst(wines) {
@@ -298,6 +317,7 @@
 
   return {
     normalizeWine,
+    winesForArchive,
     sortWinesNewestFirst,
     groupWinesByCountry,
     groupWinesByPerson,

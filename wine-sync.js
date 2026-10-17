@@ -24,6 +24,7 @@
     people: 160,
     place: 160,
     kind: 20,
+    archiveOwner: 20,
     food: 300,
     note: 2000,
   };
@@ -77,11 +78,19 @@
     return KIND_ALIASES[kind.toLowerCase()] || '그 외';
   }
 
+  function safeArchiveOwner(input) {
+    if (!Object.prototype.hasOwnProperty.call(input, 'archiveOwner')) return '';
+    if (input.archiveOwner === '') return '';
+    return PEOPLE.has(input.archiveOwner) ? input.archiveOwner : null;
+  }
+
   function normalizeWinePayload(input, expectedId) {
     if (!isRecord(input)) return null;
     const id = text(input.id, 128);
     const name = text(input.name, FIELD_LIMITS.name);
     if (!ID_PATTERN.test(id) || !name || (expectedId !== undefined && id !== String(expectedId))) return null;
+    const archiveOwner = safeArchiveOwner(input);
+    if (archiveOwner === null) return null;
     const rawScore = input.externalScore;
     const score = rawScore === '' || rawScore === null || rawScore === undefined ? NaN : Number(rawScore);
     return {
@@ -96,6 +105,7 @@
       people: text(input.people, FIELD_LIMITS.people),
       place: text(input.place, FIELD_LIMITS.place),
       kind: safeKind(input.kind),
+      archiveOwner,
       food: text(input.food, FIELD_LIMITS.food),
       note: text(input.note, FIELD_LIMITS.note),
       image: safeImage(input.image),
@@ -187,6 +197,10 @@
       .filter((wine) => isRecord(wine) && !Object.prototype.hasOwnProperty.call(wine, 'kind'))
       .map((wine) => String(wine.id || ''))
       .filter((id) => ID_PATTERN.test(id)));
+    const legacyMissingArchiveOwnerIds = new Set(rawRetainedWines
+      .filter((wine) => isRecord(wine) && !Object.prototype.hasOwnProperty.call(wine, 'archiveOwner'))
+      .map((wine) => String(wine.id || ''))
+      .filter((id) => ID_PATTERN.test(id)));
     const retainedWines = rawRetainedWines
       .map((wine) => normalizeWinePayload(wine))
       .filter(Boolean);
@@ -255,12 +269,17 @@
     if (incremental) {
       for (const wine of customWines) {
         let saved = wine;
-        if (legacyMissingKindIds.has(wine.id)) {
-          if (typeof sync.saveWinePreservingKind !== 'function') {
-            throw new Error('Safe legacy Type migration is unavailable');
+        const preserveKind = legacyMissingKindIds.has(wine.id);
+        const preserveArchiveOwner = legacyMissingArchiveOwnerIds.has(wine.id);
+        if (preserveKind || preserveArchiveOwner) {
+          if (typeof sync.saveWinePreservingLegacyFields !== 'function') {
+            throw new Error('Safe legacy field migration is unavailable');
           }
-          saved = normalizeWinePayload(await sync.saveWinePreservingKind(wine), wine.id);
-          if (!saved) throw new Error('Safe legacy Type migration returned an invalid wine');
+          saved = normalizeWinePayload(await sync.saveWinePreservingLegacyFields(wine, {
+            preserveKind,
+            preserveArchiveOwner,
+          }), wine.id);
+          if (!saved) throw new Error('Safe legacy field migration returned an invalid wine');
         } else {
           await sync.saveWine(wine);
         }
@@ -465,13 +484,15 @@
         await unwrap(client.from('wines').upsert({ id: wine.id, payload: wine, updated_at: new Date().toISOString() }));
         return wine;
       },
-      async saveWinePreservingKind(input) {
+      async saveWinePreservingLegacyFields(input, options = {}) {
         const wine = normalizeWinePayload(input);
         if (!wine) throw new Error('Invalid wine payload');
-        const saved = normalizeWinePayload(await unwrap(client.rpc('save_legacy_wine_preserving_kind', {
+        const saved = normalizeWinePayload(await unwrap(client.rpc('save_legacy_wine_preserving_fields', {
           p_id: wine.id,
           p_payload: wine,
           p_updated_at: new Date().toISOString(),
+          p_preserve_kind: options.preserveKind === true,
+          p_preserve_archive_owner: options.preserveArchiveOwner === true,
         })), wine.id);
         if (!saved) throw new Error('Invalid legacy wine migration response');
         return saved;
@@ -558,12 +579,18 @@
         });
         return wine;
       },
-      async saveWinePreservingKind(input) {
+      async saveWinePreservingLegacyFields(input, options = {}) {
         const wine = normalizeWinePayload(input);
         if (!wine) throw new Error('Invalid wine payload');
-        const saved = normalizeWinePayload(await request('rpc/save_legacy_wine_preserving_kind', {
+        const saved = normalizeWinePayload(await request('rpc/save_legacy_wine_preserving_fields', {
           method: 'POST',
-          body: JSON.stringify({ p_id: wine.id, p_payload: wine, p_updated_at: new Date().toISOString() }),
+          body: JSON.stringify({
+            p_id: wine.id,
+            p_payload: wine,
+            p_updated_at: new Date().toISOString(),
+            p_preserve_kind: options.preserveKind === true,
+            p_preserve_archive_owner: options.preserveArchiveOwner === true,
+          }),
         }), wine.id);
         if (!saved) throw new Error('Invalid legacy wine migration response');
         return saved;
