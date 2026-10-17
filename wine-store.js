@@ -107,7 +107,8 @@
   }
 
   function normalizePersonName(value) {
-    return String(value || '').trim().replace(/\s+/g, ' ').replace(/(?:이랑|랑|하고|와|과)$/u, '').trim();
+    const person = String(value || '').trim().replace(/\s+/g, ' ').replace(/(?:이랑|랑|하고|와|과)$/u, '').trim();
+    return person === '엄마' ? '하윤엄마' : person;
   }
 
   function personNames(value) {
