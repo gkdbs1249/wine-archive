@@ -12,6 +12,8 @@
   const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
   const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
   const ROTATION_PATTERN = /^-?(?:[0-5](?:\.\d{1,2})?|6(?:\.0{1,2})?)deg$/;
+  const KIND_ORDER = ['레드', '화이트', '로제', '위스키', '그 외'];
+  const KIND_ALIASES = { red: '레드', white: '화이트', rose: '로제', 'rosé': '로제', whisky: '위스키', whiskey: '위스키', other: '그 외' };
   const FIELD_LIMITS = {
     name: 160,
     vintage: 32,
@@ -21,6 +23,7 @@
     info: 240,
     people: 160,
     place: 160,
+    kind: 20,
     food: 300,
     note: 2000,
   };
@@ -67,6 +70,13 @@
     return ROTATION_PATTERN.test(rotation) ? rotation : '';
   }
 
+  function safeKind(value) {
+    const kind = text(value, FIELD_LIMITS.kind);
+    if (!kind) return '';
+    if (KIND_ORDER.includes(kind)) return kind;
+    return KIND_ALIASES[kind.toLowerCase()] || '그 외';
+  }
+
   function normalizeWinePayload(input, expectedId) {
     if (!isRecord(input)) return null;
     const id = text(input.id, 128);
@@ -85,6 +95,7 @@
       info: text(input.info, FIELD_LIMITS.info),
       people: text(input.people, FIELD_LIMITS.people),
       place: text(input.place, FIELD_LIMITS.place),
+      kind: safeKind(input.kind),
       food: text(input.food, FIELD_LIMITS.food),
       note: text(input.note, FIELD_LIMITS.note),
       image: safeImage(input.image),
@@ -171,7 +182,12 @@
     const hasPendingTracking = [PENDING_UPSERTS_KEY, PENDING_DELETES_KEY, PENDING_RATINGS_KEY]
       .some((key) => storage.getItem(key) !== null);
     const incremental = migrationState === 'dirty' && hasPendingTracking;
-    const retainedWines = readJson(storage, 'wine-archive:custom-wines', [])
+    const rawRetainedWines = readJson(storage, 'wine-archive:custom-wines', []);
+    const legacyMissingKindIds = new Set(rawRetainedWines
+      .filter((wine) => isRecord(wine) && !Object.prototype.hasOwnProperty.call(wine, 'kind'))
+      .map((wine) => String(wine.id || ''))
+      .filter((id) => ID_PATTERN.test(id)));
+    const retainedWines = rawRetainedWines
       .map((wine) => normalizeWinePayload(wine))
       .filter(Boolean);
     const retainedById = new Map(retainedWines.map((wine) => [wine.id, wine]));
@@ -233,8 +249,23 @@
       }
     }
 
+    const expectedRemoteWines = new Map(
+      incremental ? [] : customWines.map((wine) => [wine.id, wine]),
+    );
     if (incremental) {
-      for (const wine of customWines) await sync.saveWine(wine);
+      for (const wine of customWines) {
+        let saved = wine;
+        if (legacyMissingKindIds.has(wine.id)) {
+          if (typeof sync.saveWinePreservingKind !== 'function') {
+            throw new Error('Safe legacy Type migration is unavailable');
+          }
+          saved = normalizeWinePayload(await sync.saveWinePreservingKind(wine), wine.id);
+          if (!saved) throw new Error('Safe legacy Type migration returned an invalid wine');
+        } else {
+          await sync.saveWine(wine);
+        }
+        expectedRemoteWines.set(wine.id, saved);
+      }
     } else {
       if (typeof sync.insertWine !== 'function') throw new Error('Safe initial wine migration is unavailable');
       for (const wine of winesToInsert) {
@@ -288,9 +319,14 @@
     if (incremental) for (const id of deletedIds) await sync.deleteWine(id);
 
     const [remoteWines, remoteRatings] = await Promise.all([sync.listWines(), sync.listRatings()]);
-    const remoteIds = new Set(remoteWines.map((wine) => wine.id));
-    const winesMatch = customWines.every((wine) => remoteIds.has(wine.id))
-      && [...deletedIds].every((id) => !remoteIds.has(id));
+    const remoteById = new Map(remoteWines.map((wine) => {
+      const normalized = normalizeWinePayload(wine);
+      return normalized ? [normalized.id, normalized] : [String(wine?.id || ''), null];
+    }));
+    const winesMatch = [...expectedRemoteWines].every(([id, expected]) => {
+      const actual = remoteById.get(id);
+      return actual && JSON.stringify(actual) === JSON.stringify(expected);
+    }) && [...deletedIds].every((id) => !remoteById.has(id));
     const ratingsMatch = localRatings.every((row) => remoteRatings[row.wine_id]?.[row.person] === row.rating);
     if (!winesMatch || !ratingsMatch) throw new Error('Local migration readback did not match');
 
@@ -429,6 +465,17 @@
         await unwrap(client.from('wines').upsert({ id: wine.id, payload: wine, updated_at: new Date().toISOString() }));
         return wine;
       },
+      async saveWinePreservingKind(input) {
+        const wine = normalizeWinePayload(input);
+        if (!wine) throw new Error('Invalid wine payload');
+        const saved = normalizeWinePayload(await unwrap(client.rpc('save_legacy_wine_preserving_kind', {
+          p_id: wine.id,
+          p_payload: wine,
+          p_updated_at: new Date().toISOString(),
+        })), wine.id);
+        if (!saved) throw new Error('Invalid legacy wine migration response');
+        return saved;
+      },
       async insertWine(input) {
         const wine = normalizeWinePayload(input);
         if (!wine) throw new Error('Invalid wine payload');
@@ -510,6 +557,16 @@
           body: JSON.stringify({ id: wine.id, payload: wine, updated_at: new Date().toISOString() }),
         });
         return wine;
+      },
+      async saveWinePreservingKind(input) {
+        const wine = normalizeWinePayload(input);
+        if (!wine) throw new Error('Invalid wine payload');
+        const saved = normalizeWinePayload(await request('rpc/save_legacy_wine_preserving_kind', {
+          method: 'POST',
+          body: JSON.stringify({ p_id: wine.id, p_payload: wine, p_updated_at: new Date().toISOString() }),
+        }), wine.id);
+        if (!saved) throw new Error('Invalid legacy wine migration response');
+        return saved;
       },
       async insertWine(input) {
         const wine = normalizeWinePayload(input);

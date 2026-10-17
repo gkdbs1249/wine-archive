@@ -10,6 +10,10 @@
   const PENDING_DELETES_KEY = 'wine-archive:pending-wine-deletes';
   const PENDING_RATINGS_KEY = 'wine-archive:pending-ratings';
   const ARCHIVE_PRESETS_KEY = 'wine-archive:archive-presets';
+  const KIND_ORDER = ['레드', '화이트', '로제', '위스키', '그 외'];
+  const KIND_ALIASES = {
+    red: '레드', white: '화이트', rose: '로제', 'rosé': '로제', whisky: '위스키', whiskey: '위스키', other: '그 외',
+  };
 
   function markMigrationDirty(storage) {
     storage.setItem(MIGRATION_KEY, 'dirty');
@@ -53,6 +57,7 @@
       info: String(input.info || '').trim(),
       people: String(input.people || '').trim(),
       place: String(input.place || '').trim(),
+      kind: normalizeKind(input.kind),
       food: String(input.food || '').trim(),
       note: String(input.note || '').trim(),
       image: String(input.image || '').trim(),
@@ -123,6 +128,13 @@
     return String(value || '').trim().replace(/\s+/g, ' ').replace(/에서$/u, '').trim();
   }
 
+  function normalizeKind(value) {
+    const kind = String(value || '').trim().replace(/\s+/g, ' ');
+    if (!kind) return '';
+    if (KIND_ORDER.includes(kind)) return kind;
+    return KIND_ALIASES[kind.toLowerCase()] || '그 외';
+  }
+
   function groupWines(wines, valuesForWine, key) {
     const grouped = new Map();
     sortWinesNewestFirst(wines).forEach((wine) => {
@@ -146,6 +158,14 @@
       const place = normalizePlaceName(wine?.place);
       return place ? [place] : [];
     }, 'place');
+  }
+
+  function groupWinesByKind(wines) {
+    const groups = groupWines(wines, (wine) => {
+      const kind = normalizeKind(wine?.kind);
+      return kind ? [kind] : [];
+    }, 'kind');
+    return groups.sort((left, right) => KIND_ORDER.indexOf(left.kind) - KIND_ORDER.indexOf(right.kind));
   }
 
   function sanitizePresetValues(values, type) {
@@ -282,6 +302,7 @@
     groupWinesByCountry,
     groupWinesByPerson,
     groupWinesByPlace,
+    groupWinesByKind,
     addArchivePreset,
     getArchivePresets,
     addWine,

@@ -52,6 +52,7 @@
       realtime: client.realtime,
       listWines: wrap('listWines'),
       saveWine: wrap('saveWine'),
+      saveWinePreservingKind: wrap('saveWinePreservingKind'),
       insertWine: wrap('insertWine'),
       deleteWine: wrap('deleteWine'),
       listRatings: wrap('listRatings'),
