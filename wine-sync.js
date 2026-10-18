@@ -287,7 +287,7 @@
       }
     } else {
       if (typeof sync.insertWine !== 'function') throw new Error('Safe initial wine migration is unavailable');
-      for (const wine of winesToInsert) {
+      for (const wine of [...winesToInsert].reverse()) {
         try {
           await sync.insertWine(wine);
         } catch (error) {
@@ -476,7 +476,7 @@
     return {
       realtime: true,
       async listWines() {
-        return rowsToWines(await unwrap(client.from('wines').select('id,payload').order('updated_at', { ascending: false })));
+        return rowsToWines(await unwrap(client.from('wines').select('id,payload').order('created_at', { ascending: false }).order('id', { ascending: true })));
       },
       async saveWine(input) {
         const wine = normalizeWinePayload(input);
@@ -567,7 +567,7 @@
     return {
       realtime: false,
       async listWines() {
-        return rowsToWines(await request('wines?select=id,payload&order=updated_at.desc'));
+        return rowsToWines(await request('wines?select=id,payload&order=created_at.desc,id.asc'));
       },
       async saveWine(input) {
         const wine = normalizeWinePayload(input);
