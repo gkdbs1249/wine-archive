@@ -47,11 +47,23 @@
     return ['하윤', '제권'].includes(input.archiveOwner) ? input.archiveOwner : null;
   }
 
+  function normalizeNotes(input) {
+    if (!input || !Object.prototype.hasOwnProperty.call(input, 'notes')) return { 하윤: '', 제권: '' };
+    if (!input.notes || typeof input.notes !== 'object' || Array.isArray(input.notes)) return null;
+    if (Object.keys(input.notes).some((person) => !['하윤', '제권'].includes(person))) return null;
+    return {
+      하윤: String(input.notes.하윤 || '').trim().slice(0, 2000),
+      제권: String(input.notes.제권 || '').trim().slice(0, 2000),
+    };
+  }
+
   function normalizeWine(input) {
     const name = String(input?.name || '').trim();
     if (!name) return null;
     const archiveOwner = normalizeArchiveOwner(input);
     if (archiveOwner === null) return null;
+    const notes = normalizeNotes(input);
+    if (notes === null) return null;
     const rawScore = input.externalScore;
     const score = rawScore === '' || rawScore === null || rawScore === undefined ? NaN : Number(rawScore);
     return {
@@ -69,6 +81,7 @@
       archiveOwner,
       food: String(input.food || '').trim(),
       note: String(input.note || '').trim(),
+      notes,
       image: String(input.image || '').trim(),
       g: String(input.g || '').trim(),
       r: String(input.r || '').trim(),

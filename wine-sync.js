@@ -84,6 +84,15 @@
     return PEOPLE.has(input.archiveOwner) ? input.archiveOwner : null;
   }
 
+  function safeNotes(input) {
+    if (!Object.prototype.hasOwnProperty.call(input, 'notes')) return { 하윤: '', 제권: '' };
+    if (!isRecord(input.notes) || Object.keys(input.notes).some((person) => !PEOPLE.has(person))) return null;
+    return {
+      하윤: text(input.notes.하윤, FIELD_LIMITS.note),
+      제권: text(input.notes.제권, FIELD_LIMITS.note),
+    };
+  }
+
   function normalizeWinePayload(input, expectedId) {
     if (!isRecord(input)) return null;
     const id = text(input.id, 128);
@@ -91,6 +100,8 @@
     if (!ID_PATTERN.test(id) || !name || (expectedId !== undefined && id !== String(expectedId))) return null;
     const archiveOwner = safeArchiveOwner(input);
     if (archiveOwner === null) return null;
+    const notes = safeNotes(input);
+    if (notes === null) return null;
     const rawScore = input.externalScore;
     const score = rawScore === '' || rawScore === null || rawScore === undefined ? NaN : Number(rawScore);
     return {
@@ -108,6 +119,7 @@
       archiveOwner,
       food: text(input.food, FIELD_LIMITS.food),
       note: text(input.note, FIELD_LIMITS.note),
+      notes,
       image: safeImage(input.image),
       g: safeColor(input.g),
       r: safeRotation(input.r),
@@ -201,6 +213,10 @@
       .filter((wine) => isRecord(wine) && !Object.prototype.hasOwnProperty.call(wine, 'archiveOwner'))
       .map((wine) => String(wine.id || ''))
       .filter((id) => ID_PATTERN.test(id)));
+    const legacyMissingNotesIds = new Set(rawRetainedWines
+      .filter((wine) => isRecord(wine) && !Object.prototype.hasOwnProperty.call(wine, 'notes'))
+      .map((wine) => String(wine.id || ''))
+      .filter((id) => ID_PATTERN.test(id)));
     const retainedWines = rawRetainedWines
       .map((wine) => normalizeWinePayload(wine))
       .filter(Boolean);
@@ -271,13 +287,15 @@
         let saved = wine;
         const preserveKind = legacyMissingKindIds.has(wine.id);
         const preserveArchiveOwner = legacyMissingArchiveOwnerIds.has(wine.id);
-        if (preserveKind || preserveArchiveOwner) {
+        const preserveNotes = legacyMissingNotesIds.has(wine.id);
+        if (preserveKind || preserveArchiveOwner || preserveNotes) {
           if (typeof sync.saveWinePreservingLegacyFields !== 'function') {
             throw new Error('Safe legacy field migration is unavailable');
           }
           saved = normalizeWinePayload(await sync.saveWinePreservingLegacyFields(wine, {
             preserveKind,
             preserveArchiveOwner,
+            preserveNotes,
           }), wine.id);
           if (!saved) throw new Error('Safe legacy field migration returned an invalid wine');
         } else {
@@ -493,6 +511,7 @@
           p_updated_at: new Date().toISOString(),
           p_preserve_kind: options.preserveKind === true,
           p_preserve_archive_owner: options.preserveArchiveOwner === true,
+          p_preserve_notes: options.preserveNotes === true,
         })), wine.id);
         if (!saved) throw new Error('Invalid legacy wine migration response');
         return saved;
@@ -590,6 +609,7 @@
             p_updated_at: new Date().toISOString(),
             p_preserve_kind: options.preserveKind === true,
             p_preserve_archive_owner: options.preserveArchiveOwner === true,
+            p_preserve_notes: options.preserveNotes === true,
           }),
         }), wine.id);
         if (!saved) throw new Error('Invalid legacy wine migration response');

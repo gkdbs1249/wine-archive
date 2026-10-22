@@ -20,6 +20,8 @@
       kind: stringValue(wine.kind),
       food: stringValue(wine.food),
       note: stringValue(wine.note),
+      hayoonNote: stringValue(wine.notes?.하윤),
+      jegwonNote: stringValue(wine.notes?.제권),
       image: stringValue(wine.image),
     };
   }
@@ -37,7 +39,11 @@
       place: stringValue(fields.place),
       kind: stringValue(fields.kind),
       food: stringValue(fields.food),
-      note: stringValue(fields.note),
+      note: stringValue(wine?.note),
+      notes: {
+        하윤: stringValue(fields.hayoonNote),
+        제권: stringValue(fields.jegwonNote),
+      },
       image: replacementImage || stringValue(wine?.image),
       custom: wine?.custom === true,
     };
