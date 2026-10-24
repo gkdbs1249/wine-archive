@@ -14,12 +14,13 @@
   }
 
   function parseVivinoOcr(text) {
-    const rawLines = String(text || '').split(/\n/).map((line) => line.trim()).filter(Boolean);
+    const normalizedText = String(text || '').normalize('NFKC');
+    const rawLines = normalizedText.split(/\n/).map((line) => line.trim()).filter(Boolean);
     const lines = rawLines.map(cleanLine);
     const yearIndex = rawLines.findIndex((line) => /\b(?:19|20)\d{2}\b/.test(line));
-    const vintageMatch = String(text || '').match(/\b(?:19|20)\d{2}\b/);
-    const scoreMatch = String(text || '').match(/(?:^|\s)([0-5][.,]\d)(?:\s|$)/m);
-    const countMatch = String(text || '').match(/([\d.,]+)\s*(ratings?|평점)/i);
+    const vintageMatch = normalizedText.match(/\b(?:19|20)\d{2}\b/);
+    const scoreMatch = normalizedText.match(/(?:^|[^0-9])([0-5])\s*[.,]\s*([0-9Oo])(?=[^0-9]|$)/m);
+    const countMatch = normalizedText.match(/([\d.,]+)\s*(ratings?|평점)/i);
 
     let name = '';
     if (yearIndex > 0) {
@@ -44,10 +45,16 @@
       if (Number.isFinite(number)) count = `${number.toLocaleString('en-US')} ratings`;
     }
 
+    let score = '';
+    if (scoreMatch) {
+      const candidate = `${scoreMatch[1]}.${scoreMatch[2].replace(/[Oo]/, '0')}`;
+      if (Number(candidate) <= 5) score = candidate;
+    }
+
     return {
       name,
       vintage: vintageMatch?.[0] || '',
-      score: scoreMatch ? scoreMatch[1].replace(',', '.') : '',
+      score,
       count,
       country,
     };

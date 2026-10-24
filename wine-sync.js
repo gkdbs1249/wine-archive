@@ -93,6 +93,17 @@
     };
   }
 
+  function safeExternalScore(value) {
+    if (value === '' || value === null || value === undefined) return null;
+    const normalized = String(value).normalize('NFKC').trim();
+    if (!normalized) return null;
+    const decorated = /^(.*?)\s*(?:점|\/\s*5)$/.exec(normalized);
+    const numericText = (decorated ? decorated[1] : normalized).trim().replace(',', '.');
+    if (!numericText) return null;
+    const score = Number(numericText);
+    return Number.isFinite(score) && score >= 0 && score <= 5 ? score : null;
+  }
+
   function normalizeWinePayload(input, expectedId) {
     if (!isRecord(input)) return null;
     const id = text(input.id, 128);
@@ -102,14 +113,13 @@
     if (archiveOwner === null) return null;
     const notes = safeNotes(input);
     if (notes === null) return null;
-    const rawScore = input.externalScore;
-    const score = rawScore === '' || rawScore === null || rawScore === undefined ? NaN : Number(rawScore);
+    const score = safeExternalScore(input.externalScore);
     return {
       id,
       name,
       vintage: text(input.vintage, FIELD_LIMITS.vintage),
       country: text(input.country, FIELD_LIMITS.country),
-      externalScore: Number.isFinite(score) && score >= 0 && score <= 5 ? score : null,
+      externalScore: score,
       externalCount: text(input.externalCount, FIELD_LIMITS.externalCount),
       date: text(input.date, FIELD_LIMITS.date),
       info: text(input.info, FIELD_LIMITS.info),
@@ -662,6 +672,7 @@
   return {
     MIGRATION_KEY,
     normalizeWinePayload,
+    safeExternalScore,
     safeImage,
     safeColor,
     safeRotation,
